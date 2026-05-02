@@ -1,0 +1,12 @@
+mediapipe>=0.10.0
+opencv-python>=4.9.0
+numpy>=1.24.0
+pygame>=2.5.0
+flask>=3.0.0
+werkzeug>=3.0.0
+
+# 自动拨打电话（二选一，按需安装）
+# 阿里云语音通知（国内推荐）：
+# pip install alibabacloud-dyvmsapi20170525
+# Twilio（国际备选）：
+# pip install twilio

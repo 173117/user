@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>AI智护银龄 - 社区大屏</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <style>
+        body {
+            background: #1e2a3a;
+            color: white;
+            margin: 0;
+            padding: 20px;
+            font-family: 'Microsoft YaHei', sans-serif;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 20px;
+            backdrop-filter: blur(5px);
+        }
+        .elder-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .elder-name {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .status {
+            font-size: 18px;
+            margin-top: 10px;
+        }
+        .alert-toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #ff4444;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 8px;
+            z-index: 1000;
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(100%); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        h3 {
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align:center;">🏥 智慧养老指挥中心</h1>
+    <div class="dashboard">
+        <div class="card">
+            <h3>👴 老人实时状态</h3>
+            <div id="elderList">
+                <div class="elder-card">
+                    <div class="elder-name">张爷爷 · 82岁</div>
+                    <div class="status">状态：<span id="elderStatus">在线</span></div>
+                    <div>今日跌倒次数：<span id="todayFall">0</span></div>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <h3>📊 近7天报警统计</h3>
+            <div id="chart" style="height: 300px;"></div>
+        </div>
+        <div class="card" style="grid-column: span 2;">
+            <h3>📋 报警记录列表</h3>
+            <div id="alertTable" style="overflow-x: auto;">
+                <table style="width:100%; border-collapse: collapse;">
+                    <thead><tr><th>时间</th><th>状态</th><th>处理</th></tr></thead>
+                    <tbody id="alertTableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var ws = new WebSocket(`ws://${window.location.host}/ws`);
+
+        ws.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            if (data.type === 'alert') {
+                // 弹窗提示
+                showToast(`⚠️ 跌倒报警！${data.time}`);
+                // 更新今日跌倒次数（简单递增）
+                var todaySpan = document.getElementById('todayFall');
+                var count = parseInt(todaySpan.innerText) + 1;
+                todaySpan.innerText = count;
+                // 刷新报警列表和图表
+                fetchStats();
+            } else if (data.type === 'status') {
+                if (data.status) document.getElementById('elderStatus').innerText = data.status;
+            }
+        };
+
+        function showToast(msg) {
+            var toast = document.createElement('div');
+            toast.className = 'alert-toast';
+            toast.innerText = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        function fetchStats() {
+            fetch('/api/alerts/stats')
+                .then(res => res.json())
+                .then(data => {
+                    // 更新今日跌倒次数
+                    if (data.today_fall !== undefined) {
+                        document.getElementById('todayFall').innerText = data.today_fall;
+                    }
+                    // 绘制柱状图
+                    var chartDom = document.getElementById('chart');
+                    var myChart = echarts.init(chartDom);
+                    myChart.setOption({
+                        tooltip: {},
+                        xAxis: { data: data.dates || [] },
+                        yAxis: {},
+                        series: [{ name: '跌倒次数', type: 'bar', data: data.counts || [] }]
+                    });
+                });
+            fetch('/api/alerts')
+                .then(res => res.json())
+                .then(data => {
+                    var tbody = document.getElementById('alertTableBody');
+                    tbody.innerHTML = '';
+                    data.forEach(alert => {
+                        var row = tbody.insertRow();
+                        row.insertCell(0).innerText = alert.time;
+                        row.insertCell(1).innerText = alert.status === 'resolved' ? '已处理' : '未处理';
+                        row.insertCell(2).innerHTML = alert.status === 'pending' ? '<button onclick="resolveAlert('+alert.id+')">确认</button>' : '—';
+                    });
+                });
+        }
+
+        function resolveAlert(id) {
+            fetch('/api/alerts/'+id+'/resolve', { method: 'POST' })
+                .then(() => fetchStats());
+        }
+
+        fetchStats();
+        setInterval(fetchStats, 10000); // 每10秒刷新一次
+    </script>
+</body>
+</html>

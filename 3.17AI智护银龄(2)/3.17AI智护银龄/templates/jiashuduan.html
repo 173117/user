@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI智护银龄 - 家属端</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .video-card {
+            background: #000;
+            border-radius: 16px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .video-card img {
+            width: 100%;
+            display: block;
+        }
+        .info-panel {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .alert-list {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .alert-item {
+            background: #fff0f0;
+            border-left: 4px solid #ff4444;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+        }
+        .timer-bar {
+            background: #ffaa00;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            text-align: center;
+            font-weight: bold;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .fall-count {
+            font-size: 24px;
+            font-weight: bold;
+            color: #ff4444;
+        }
+        h2 {
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👴 张爷爷 · 智能看护</h1>
+        
+        <div class="video-card">
+            <img id="videoFeed" src="{{ url_for('video_feed') }}" alt="视频流">
+        </div>
+
+        <div class="info-panel">
+            <h2>📊 实时状态</h2>
+            <p>当前状态：<span id="statusText">正常</span></p>
+            <p>跌倒次数：<span id="fallCount" class="fall-count">0</span></p>
+            <div id="timerArea" style="display:none;">
+                <div class="timer-bar">⏰ 紧急倒计时：<span id="timerSeconds">600</span> 秒后自动呼叫120</div>
+                <button id="confirmBtn">✅ 我已确认安全（取消倒计时）</button>
+            </div>
+        </div>
+
+        <div class="alert-list">
+            <h2>📋 最近报警记录</h2>
+            <div id="alertList"></div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket连接
+        var ws = new WebSocket(`ws://${window.location.host}/ws`);
+        var fallCount = 0;
+        var timerInterval = null;
+
+        ws.onopen = function() {
+            console.log('WebSocket连接成功');
+        };
+
+        ws.onmessage = function(event) {
+            var data = JSON.parse(event.data);
+            console.log('收到消息:', data);
+            if (data.type === 'alert') {
+                // 新报警
+                fallCount++;
+                document.getElementById('fallCount').innerText = fallCount;
+                // 添加报警记录
+                var alertDiv = document.createElement('div');
+                alertDiv.className = 'alert-item';
+                alertDiv.innerHTML = `⚠️ 跌倒报警！时间：${data.time}<br>置信度：${data.score || '--'}`;
+                var alertList = document.getElementById('alertList');
+                alertList.insertBefore(alertDiv, alertList.firstChild);
+                // 显示倒计时区域
+                document.getElementById('timerArea').style.display = 'block';
+                startTimer(600); // 10分钟 = 600秒
+            } else if (data.type === 'timer_update') {
+                // 倒计时更新
+                if (timerInterval === null && data.seconds > 0) {
+                    startTimer(data.seconds);
+                } else if (data.seconds <= 0) {
+                    clearTimer();
+                    document.getElementById('timerArea').style.display = 'none';
+                    alert('⚠️ 10分钟未响应，已自动呼叫120！');
+                }
+            } else if (data.type === 'status') {
+                // 状态更新
+                document.getElementById('statusText').innerText = data.status;
+                if (data.fall_count !== undefined) {
+                    fallCount = data.fall_count;
+                    document.getElementById('fallCount').innerText = fallCount;
+                }
+            }
+        };
+
+        function startTimer(seconds) {
+            if (timerInterval) clearInterval(timerInterval);
+            var remaining = seconds;
+            var timerSpan = document.getElementById('timerSeconds');
+            timerSpan.innerText = remaining;
+            timerInterval = setInterval(function() {
+                remaining--;
+                timerSpan.innerText = remaining;
+                if (remaining <= 0) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    // 倒计时结束，自动取消显示
+                    document.getElementById('timerArea').style.display = 'none';
+                }
+            }, 1000);
+        }
+
+        function clearTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            document.getElementById('timerArea').style.display = 'none';
+        }
+
+        // 点击确认按钮
+        document.getElementById('confirmBtn').addEventListener('click', function() {
+            fetch('/confirm_alert', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.ok) {
+                        clearTimer();
+                        alert('已确认，倒计时取消');
+                    } else {
+                        alert('确认失败：' + data.msg);
+                    }
+                });
+        });
+    </script>
+</body>
+</html>
